@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+
+// This is an MCP server for Git operations
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import {
@@ -9,6 +11,17 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { exec as execCallback } from 'child_process';
 import { promisify } from 'util';
+
+// Parse command line arguments
+const args = process.argv.slice(2);
+const accessTokenIndex = args.indexOf('--access-token');
+const GITHUB_TOKEN = accessTokenIndex !== -1 ? args[accessTokenIndex + 1] : process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
+
+if (!GITHUB_TOKEN) {
+  console.error('Error: GitHub Personal Access Token is required.');
+  console.error('Provide it using --access-token <token> or GITHUB_PERSONAL_ACCESS_TOKEN environment variable.');
+  process.exit(1);
+}
 
 // Promisify exec for async/await usage
 const exec = promisify(execCallback);

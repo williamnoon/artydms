@@ -4,6 +4,9 @@
   "description": "Git MCP Server for pushing to GitHub",
   "type": "module",
   "main": "git-mcp-server.js",
+  "bin": {
+    "git-mcp-server": "./git-mcp-server.js"
+  },
   "scripts": {
     "start": "node git-mcp-server.js"
   },
