@@ -1,0 +1,713 @@
+import React, { useState, useEffect } from 'react';
+import { supabase, handleSupabaseError } from './supabaseClient';
+
+// Error Boundary for catching errors in the widget
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    // In production, you would send this to an error tracking service
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 bg-red-100 rounded-lg shadow-lg max-w-2xl mx-auto mt-8">
+          <h2 className="text-xl font-bold text-red-700 mb-2">Something went wrong.</h2>
+          <pre className="text-xs text-red-900 whitespace-pre-wrap">{this.state.error && this.state.error.toString()}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const RoleBasedVehicleCalculator = (props) => {
+  // State for vehicles and loading
+  const [vehicles, setVehicles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // Accept userRole and userName as props
+  const userRole = props.userRole;
+  const userName = props.userName;
+  
+  // Fetch vehicles from Supabase
+  useEffect(() => {
+    const fetchVehicles = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch assets with their fund associations
+        const { data: assets, error: assetsError } = await supabase
+          .from('assets')
+          .select(`
+            *,
+            fund_assets(*)
+          `);
+          
+        if (assetsError) {
+          throw new Error(handleSupabaseError(assetsError));
+        }
+        
+        // Transform the data to match our component's structure
+        const transformedVehicles = assets.map(asset => {
+          // Determine ownership type based on fund associations
+          let ownership = 'Consigned'; // Default
+          let ownershipShares = [];
+          
+          if (asset.fund_assets && asset.fund_assets.length > 0) {
+            const fundAsset = asset.fund_assets[0];
+            const fundId = fundAsset.fund_id || '';
+            
+            // Map fund_id to ownership type based on your business rules
+            if (fundId === 'cha10') {
+              ownership = 'Partner-Owned';
+              ownershipShares = [{ ownerName: 'Partner One', ownershipPercentage: 100 }];
+            } else if (fundId === 'tra10') {
+              ownership = 'Partner-Owned';
+              ownershipShares = [{ ownerName: 'Partner Two', ownershipPercentage: 100 }];
+            } else if (fundId === 'bhph') {
+              ownership = 'Partner-Owned';
+              ownershipShares = [
+                { ownerName: 'Partner One', ownershipPercentage: 50 },
+                { ownerName: 'Partner Two', ownershipPercentage: 50 }
+              ];
+            } else if (fundId === 'caps') {
+              ownership = 'Shared';
+              ownershipShares = [
+                { ownerName: 'Partner One', ownershipPercentage: 50 },
+                { ownerName: 'Partner Two', ownershipPercentage: 50 }
+              ];
+            } else if (fundId === 'cos10') {
+              ownership = 'Consigned';
+              ownershipShares = [{ ownerName: 'External Owner 1', ownershipPercentage: 100 }];
+            } else {
+              // Default for other funds
+              ownership = 'Consigned';
+              ownershipShares = [{ ownerName: 'External Owner 1', ownershipPercentage: 100 }];
+            }
+          } else {
+            // No fund association, default to External Owner
+            ownershipShares = [{ ownerName: 'External Owner 1', ownershipPercentage: 100 }];
+          }
+          
+          return {
+            id: asset.id,
+            vin: asset.vin,
+            name: `${asset.year} ${asset.make} ${asset.model}`,
+            ownership: ownership,
+            salesPrice: asset.purchase_price || 0,
+            ownershipShares: ownershipShares
+          };
+        });
+        
+        setVehicles(transformedVehicles);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setError('Failed to load vehicles: ' + (error.message || 'Unknown error'));
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchVehicles();
+  }, []);
+
+  // Add vehicle form state
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newVIN, setNewVIN] = useState('');
+  const [newMake, setNewMake] = useState('');
+  const [newModel, setNewModel] = useState('');
+  const [vinDecodeError, setVinDecodeError] = useState('');
+  const [newOwnershipType, setNewOwnershipType] = useState('Shared');
+  const [newSalesPrice, setNewSalesPrice] = useState('');
+  const [newShares, setNewShares] = useState([
+    { ownerName: 'Partner One', ownershipPercentage: 50 },
+    { ownerName: 'Partner Two', ownershipPercentage: 50 }
+  ]);
+
+  // Helper to reset add vehicle form
+  const resetAddForm = () => {
+    setNewVIN('');
+    setNewMake('');
+    setNewModel('');
+    setNewOwnershipType('Shared');
+    setNewSalesPrice('');
+    setNewShares([
+      { ownerName: 'Partner One', ownershipPercentage: 50 },
+      { ownerName: 'Partner Two', ownershipPercentage: 50 }
+    ]);
+  };
+
+  // Handle ownership type change in add form
+  const handleAddOwnershipTypeChange = (type) => {
+    setNewOwnershipType(type);
+    if (type === 'Shared') {
+      setNewShares([
+        { ownerName: 'Partner One', ownershipPercentage: 50 },
+        { ownerName: 'Partner Two', ownershipPercentage: 50 }
+      ]);
+    } else {
+      // Default to one share for current user
+      setNewShares([{ ownerName: userName, ownershipPercentage: 100 }]);
+    }
+  };
+
+  // Filter vehicles based on user
+  const getVisibleVehicles = () => {
+    if (userRole === 'Admin') {
+      // Admin sees all vehicles
+      return vehicles;
+    } else if (userRole === 'Partner One') {
+      // Partner One sees vehicles in cha10 fund, and shared vehicles (caps and bhph)
+      return vehicles.filter(vehicle => {
+        return vehicle.ownership === 'Shared' || 
+               (vehicle.ownership === 'Partner-Owned' && 
+                vehicle.ownershipShares.some(share => share.ownerName === 'Partner One'));
+      });
+    } else if (userRole === 'Partner Two') {
+      // Partner Two sees vehicles in tra10 fund, and shared vehicles (caps and bhph)
+      return vehicles.filter(vehicle => {
+        return vehicle.ownership === 'Shared' || 
+               (vehicle.ownership === 'Partner-Owned' && 
+                vehicle.ownershipShares.some(share => share.ownerName === 'Partner Two'));
+      });
+    } else {
+      // Owners only see vehicles they have shares in
+      return vehicles.filter(vehicle =>
+        vehicle.ownershipShares.some(share => share.ownerName === userName)
+      );
+    }
+  };
+  
+  const visibleVehicles = getVisibleVehicles();
+  const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [salesPrice, setSalesPrice] = useState(0);
+  const [originalSalesPrice, setOriginalSalesPrice] = useState(0);
+  const [ownershipType, setOwnershipType] = useState('Shared');
+  const [saleType, setSaleType] = useState('Retail');
+  const [calculation, setCalculation] = useState(null);
+  const [proposedPrices, setProposedPrices] = useState({});
+  const [priceStatus, setPriceStatus] = useState('Current'); // Current, Proposed, Finalized
+  const [isEditingPrice, setIsEditingPrice] = useState(false);
+  // Admin adjustable fees
+  const [adminPackFee, setAdminPackFee] = useState(500);
+  const [adminBrokerageFee, setAdminBrokerageFee] = useState(null); // null means use calculated
+  const [waivePackFee, setWaivePackFee] = useState(false);
+  const [waiveBrokerageFee, setWaiveBrokerageFee] = useState(false);
+
+  // Handle vehicle selection
+  const handleVehicleSelect = (e) => {
+    // Reset admin fee controls
+    setAdminPackFee(500);
+    setAdminBrokerageFee(null);
+    setWaivePackFee(false);
+    setWaiveBrokerageFee(false);
+    const vehicleId = e.target.value;
+    const vehicle = vehicles.find(v => v.id === vehicleId);
+    
+    if (vehicle) {
+      setSelectedVehicle(vehicle);
+      setSalesPrice(vehicle.salesPrice);
+      setOriginalSalesPrice(vehicle.salesPrice);
+      setOwnershipType(vehicle.ownership);
+      setSaleType('Retail'); // Default to retail
+      setPriceStatus('Current');
+      setIsEditingPrice(false);
+      
+      // Check if there's a proposed price for this vehicle
+      if (proposedPrices[vehicle.id]) {
+        setPriceStatus('Proposed');
+      }
+    } else {
+      setSelectedVehicle(null);
+      setCalculation(null);
+    }
+  };
+
+  // Add owner field to newShares
+  const handleAddOwnerToShares = () => {
+    setNewShares([...newShares, { ownerName: '', ownershipPercentage: 0 }]);
+  };
+
+  // Handle change in newShares
+  const handleChangeShare = (idx, field, value) => {
+    setNewShares(newShares.map((s, i) => i === idx ? { ...s, [field]: value } : s));
+  };
+
+  // Remove owner from newShares
+  const handleRemoveShare = (idx) => {
+    setNewShares(newShares.filter((_, i) => i !== idx));
+  };
+
+  // Handle add vehicle
+  const handleAddVehicle = async (e) => {
+    e.preventDefault();
+    if (!newVIN || newVIN.length !== 17 || !newMake || !newModel || !newSalesPrice || newShares.reduce((sum, s) => sum + Number(s.ownershipPercentage), 0) !== 100) {
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      
+      // Determine the year from the VIN or use current year
+      const currentYear = new Date().getFullYear();
+      
+      // Insert the new vehicle into Supabase assets table
+      const { data: newAsset, error: assetError } = await supabase
+        .from('assets')
+        .insert({
+          vin: newVIN,
+          make: newMake,
+          model: newModel,
+          year: currentYear,
+          purchase_price: Number(newSalesPrice),
+          status: 'active'
+        })
+        .select()
+        .single();
+      
+      if (assetError) {
+        throw new Error(handleSupabaseError(assetError));
+      }
+      
+      // Validate newAsset data before proceeding
+      if (!newAsset || !newAsset.id) {
+        throw new Error('Failed to create vehicle record');
+      }
+      
+      // Determine which fund to associate the vehicle with
+      let fundId;
+      if (newOwnershipType === 'Shared') {
+        fundId = 'caps'; // Capital Shares fund for shared ownership
+      } else if (newOwnershipType === 'Partner-Owned') {
+        // Determine which partner is the owner based on the first share
+        const primaryOwner = newShares[0].ownerName;
+        if (primaryOwner === 'Partner One') {
+          fundId = 'cha10'; // Charleston fund for Partner One
+        } else if (primaryOwner === 'Partner Two') {
+          fundId = 'tra10'; // Trade-in fund for Partner Two
+        } else {
+          // Both partners own it equally
+          fundId = 'bhph'; // Buy Here Pay Here fund for joint ownership
+        }
+      } else {
+        // Consigned vehicle
+        fundId = 'cos10'; // Consignment fund with 10% fee
+      }
+      
+      // Associate the vehicle with the appropriate fund
+      const { error: fundAssetError } = await supabase
+        .from('fund_assets')
+        .insert({
+          asset_id: newAsset.id,
+          fund_id: fundId,
+          display_order: vehicles.length + 1
+        });
+      
+      if (fundAssetError) {
+        // If fund association fails, clean up the vehicle to avoid orphaned records
+        await supabase.from('assets').delete().eq('id', newAsset.id);
+        throw new Error(handleSupabaseError(fundAssetError));
+      }
+      
+      // Create a vehicle object for the UI
+      const newVehicle = {
+        id: newAsset.id,
+        vin: newVIN,
+        make: newMake,
+        model: newModel,
+        name: `${currentYear} ${newMake} ${newModel}`,
+        ownership: newOwnershipType,
+        salesPrice: Number(newSalesPrice),
+        ownershipShares: newShares.map(s => ({ ...s, ownershipPercentage: Number(s.ownershipPercentage) }))
+      };
+      
+      setVehicles([...vehicles, newVehicle]);
+      setShowAddForm(false);
+      resetAddForm();
+      // Delay the selection to ensure state updates properly
+      setTimeout(() => {
+        setSelectedVehicle(newVehicle);
+      }, 100);
+      
+    } catch (error) {
+      console.error('Error adding vehicle:', error);
+      alert(`Failed to add vehicle: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Calculate financial metrics whenever inputs change
+  useEffect(() => {
+    if (selectedVehicle && salesPrice > 0) {
+      calculateFinancials();
+    }
+  }, [salesPrice, ownershipType, saleType, adminPackFee, adminBrokerageFee, waivePackFee, waiveBrokerageFee]);
+
+  // Financial calculation logic
+  const calculateFinancials = () => {
+    // Constants
+    const DOC_FEE = 225.0;
+    const REGISTRATION_FEE = 40.0;
+    const TITLE_FEE = 15.0;
+    
+    // Calculate gross income
+    const grossIncome = parseFloat(salesPrice) + DOC_FEE + REGISTRATION_FEE + TITLE_FEE;
+    
+    // Calculate IMF fee (5% of sales price + doc fee)
+    const imfFee = 0.05 * (parseFloat(salesPrice) + DOC_FEE);
+    
+    // Calculate sales assist fee (5% of sales price, only for Retail sales)
+    const salesAssistFee = saleType === 'Retail' ? 0.05 * parseFloat(salesPrice) : 0;
+    
+    // Calculate brokerage fee (10% of sales price, only for Consigned or Partner-Owned)
+    let brokerageFee = ['Consigned', 'Partner-Owned'].includes(ownershipType) 
+      ? 0.10 * parseFloat(salesPrice) 
+      : 0;
+    let packFee = ['Consigned', 'Partner-Owned'].includes(ownershipType) ? 500 : 0;
+    if (userRole === 'Admin') {
+      if (waiveBrokerageFee) {
+        brokerageFee = 0;
+      } else if (adminBrokerageFee !== null && adminBrokerageFee !== undefined) {
+        brokerageFee = Number(adminBrokerageFee);
+      }
+      if (waivePackFee) {
+        packFee = 0;
+      } else if (adminPackFee !== undefined && adminPackFee !== null) {
+        packFee = Number(adminPackFee);
+      }
+    }
+    // Calculate total deductions
+    const totalDeductions = imfFee + salesAssistFee + brokerageFee + packFee;
+    // Calculate net after deductions
+    const netAfterDeductions = grossIncome - totalDeductions;
+    // Calculate net split based on ownership type
+    let netSplit = 0;
+    if (ownershipType === 'Shared') {
+      netSplit = netAfterDeductions / 2;
+    } else { // Consigned or Partner-Owned
+      netSplit = brokerageFee / 2;
+    }
+    setCalculation({
+      gross_income: grossIncome,
+      doc_fee: DOC_FEE,
+      registration_fee: REGISTRATION_FEE,
+      title_fee: TITLE_FEE,
+      imf_fee: imfFee,
+      sales_assist_fee: salesAssistFee,
+      brokerage_fee: brokerageFee,
+      pack_fee: packFee,
+      total_deductions: totalDeductions,
+      net_after_deductions: netAfterDeductions,
+      net_split: netSplit
+    });
+  };
+
+  // Role-specific actions
+  const proposePrice = () => {
+    // Save the proposed price
+    setProposedPrices({
+      ...proposedPrices,
+      [selectedVehicle.id]: salesPrice
+    });
+    setPriceStatus('Proposed');
+    setIsEditingPrice(false);
+  };
+
+  const finalizePrice = () => {
+    // Update the vehicle's price (admin only)
+    const updatedVehicles = vehicles.map(vehicle => {
+      if (vehicle.id === selectedVehicle.id) {
+        return { ...vehicle, salesPrice: salesPrice };
+      }
+      return vehicle;
+    });
+    
+    setVehicles(updatedVehicles);
+    setOriginalSalesPrice(salesPrice);
+    setPriceStatus('Finalized');
+    setIsEditingPrice(false);
+  };
+
+  const resetPrice = () => {
+    // Reset to original price
+    setSalesPrice(originalSalesPrice);
+    setIsEditingPrice(false);
+    setPriceStatus('Current');
+  };
+  
+  // Helper function to update ownership in database
+  const updateOwnershipInDatabase = async (ownershipType, vehicle, fundId) => {
+    try {
+      setLoading(true);
+      
+      // Find existing fund_asset record
+      const { data: fundAssets, error: findError } = await supabase
+        .from('fund_assets')
+        .select('id')
+        .eq('asset_id', vehicle.id);
+        
+      if (findError) {
+        throw new Error(handleSupabaseError(findError));
+      }
+      
+      // If it exists, update it; otherwise create a new one
+      if (fundAssets && fundAssets.length > 0) {
+        const { error: updateError } = await supabase
+          .from('fund_assets')
+          .update({ fund_id: fundId })
+          .eq('id', fundAssets[0].id);
+          
+        if (updateError) {
+          throw new Error(handleSupabaseError(updateError));
+        }
+      } else {
+        const { error: insertError } = await supabase
+          .from('fund_assets')
+          .insert({
+            asset_id: vehicle.id,
+            fund_id: fundId,
+            display_order: 0
+          });
+          
+        if (insertError) {
+          throw new Error(handleSupabaseError(insertError));
+        }
+      }
+    
+      // Show success message
+      setError(null); // Clear any previous errors
+      
+      // Create a success message element and append to the component
+      const successEl = document.createElement('div');
+      successEl.className = 'fixed bottom-4 right-4 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded z-50';
+      successEl.innerHTML = `
+        <div class="flex items-center">
+          <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+          </svg>
+          <span>Ownership type updated successfully!</span>
+        </div>
+      `;
+      document.body.appendChild(successEl);
+      
+      // Remove after 3 seconds
+      setTimeout(() => {
+        if (document.body.contains(successEl)) {
+          document.body.removeChild(successEl);
+        }
+      }, 3000);
+      
+      console.log(`Vehicle ownership type updated to ${ownershipType} with fund ${fundId}`);
+    } catch (error) {
+      console.error('Error updating ownership type:', error);
+      setError('Failed to update ownership type: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Handle ownership type change
+  const handleOwnershipTypeChange = (newType) => {
+    setOwnershipType(newType);
+    
+    // First, handle Shared and Consigned types immediately
+    if (newType === 'Shared' || newType === 'Consigned') {
+      let newShares = [];
+      if (newType === 'Shared') {
+        newShares = [
+          { ownerName: 'Partner One', ownershipPercentage: 50 },
+          { ownerName: 'Partner Two', ownershipPercentage: 50 }
+        ];
+      } else { // Consigned
+        newShares = [{ ownerName: 'External Owner 1', ownershipPercentage: 100 }];
+      }
+      
+      // Update the selected vehicle
+      const updatedVehicle = { 
+        ...selectedVehicle, 
+        ownership: newType,
+        ownershipShares: newShares
+      };
+      
+      setSelectedVehicle(updatedVehicle);
+      setVehicles(vehicles.map(v => v.id === updatedVehicle.id ? updatedVehicle : v));
+      
+      // Update database for shared and consigned
+      updateOwnershipInDatabase(newType, updatedVehicle, 
+        newType === 'Shared' ? 'caps' : 'cos10');
+    } else if (newType === 'Partner-Owned') {
+      // For Partner-Owned, show a dialog to select the partner
+      // Create the partner selection modal
+      const modalEl = document.createElement('div');
+      modalEl.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+      modalEl.innerHTML = `
+        <div class="bg-white rounded-lg shadow-lg p-6 max-w-sm w-full">
+          <h3 class="text-lg font-medium mb-4">Select Partner Owner</h3>
+          <div class="space-y-2">
+            <button id="partner-one-btn" class="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              Partner One
+            </button>
+            <button id="partner-two-btn" class="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              Partner Two
+            </button>
+            <button id="both-partners-btn" class="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+              Both Partners (50/50)
+            </button>
+            <button id="cancel-partner-btn" class="w-full px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 mt-4">
+              Cancel
+            </button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(modalEl);
+      
+      // Handle partner selection
+      document.getElementById('partner-one-btn').addEventListener('click', () => {
+        const newShares = [{ ownerName: 'Partner One', ownershipPercentage: 100 }];
+        const updatedVehicle = { 
+          ...selectedVehicle, 
+          ownership: newType,
+          ownershipShares: newShares
+        };
+        
+        setSelectedVehicle(updatedVehicle);
+        setVehicles(vehicles.map(v => v.id === updatedVehicle.id ? updatedVehicle : v));
+        updateOwnershipInDatabase(newType, updatedVehicle, 'cha10');
+        document.body.removeChild(modalEl);
+      });
+      
+      document.getElementById('partner-two-btn').addEventListener('click', () => {
+        const newShares = [{ ownerName: 'Partner Two', ownershipPercentage: 100 }];
+        const updatedVehicle = { 
+          ...selectedVehicle, 
+          ownership: newType,
+          ownershipShares: newShares
+        };
+        
+        setSelectedVehicle(updatedVehicle);
+        setVehicles(vehicles.map(v => v.id === updatedVehicle.id ? updatedVehicle : v));
+        updateOwnershipInDatabase(newType, updatedVehicle, 'tra10');
+        document.body.removeChild(modalEl);
+      });
+      
+      document.getElementById('both-partners-btn').addEventListener('click', () => {
+        const newShares = [
+          { ownerName: 'Partner One', ownershipPercentage: 50 },
+          { ownerName: 'Partner Two', ownershipPercentage: 50 }
+        ];
+        const updatedVehicle = { 
+          ...selectedVehicle, 
+          ownership: newType,
+          ownershipShares: newShares
+        };
+        
+        setSelectedVehicle(updatedVehicle);
+        setVehicles(vehicles.map(v => v.id === updatedVehicle.id ? updatedVehicle : v));
+        updateOwnershipInDatabase(newType, updatedVehicle, 'bhph');
+        document.body.removeChild(modalEl);
+      });
+      
+      document.getElementById('cancel-partner-btn').addEventListener('click', () => {
+        // Reset back to the previous ownership type
+        setOwnershipType(selectedVehicle.ownership);
+        document.body.removeChild(modalEl);
+      });
+    }
+  };
+
+  // Format currency for display
+  const formatCurrency = (value) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD'
+    }).format(value);
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-md">
+      {/* Loading state */}
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
+          <div className="bg-white p-4 rounded-lg shadow-lg">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+            <p className="mt-2 text-center">Loading...</p>
+          </div>
+        </div>
+      )}
+      
+      {/* Error message */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
+          {error}
+        </div>
+      )}
+      
+      <div className="flex justify-between mb-6 items-center">
+        <h1 className="text-2xl font-bold text-blue-800">AutoSale Financial Engine</h1>
+        {/* User Selector (for demo) */}
+      </div>
+      
+      {/* Vehicle Selection */}
+      <div className="mb-6">
+        <div className="flex justify-between items-center mb-2">
+          <label className="block text-gray-700 font-medium">Select Vehicle</label>
+          <button
+            className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+            onClick={() => setShowAddForm(!showAddForm)}
+          >
+            {showAddForm ? 'Cancel' : 'Add Vehicle'}
+          </button>
+        </div>
+        <select 
+          className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500" 
+          onChange={handleVehicleSelect}
+          value={selectedVehicle ? selectedVehicle.id : ''}
+        >
+          <option value="">-- Select a Vehicle --</option>
+          {visibleVehicles.map(vehicle => (
+            <option key={vehicle.id} value={vehicle.id}>
+              {vehicle.name} - {formatCurrency(vehicle.salesPrice)} ({vehicle.ownership})
+            </option>
+          ))}
+        </select>
+        {visibleVehicles.length === 0 && (
+          <div className="mt-2 text-red-600 font-medium">No vehicles available for this user.</div>
+        )}
+      </div>
+
+      {/* Add Vehicle Form */}
+      {showAddForm && (
+        <form onSubmit={handleAddVehicle} className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+          <h3 className="font-medium text-blue-700 mb-2">Add New Vehicle</h3>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-2">
+            <div>
+              <label className="block text-gray-700 text-sm mb-1">VIN</label>
+              <input
+                type="text"
+                value={newVIN}
+                onChange={(e) => setNewVIN(e.target.value.toUpperCase())}
+                className="w-full p-2 border border-gray-300 rounded tracking-widest"
+                maxLength={17}
+                minLength={17}
+                required
+              />
+              {newVIN.length > 0 && newVIN.length !== 17 && (
+                <div className="text-xs text-red-600 mt-1">VIN must be 17 characters</div>
+              )}
+            </div>
+            <div>
+              <label className="block text-gray-700 text-sm mb-1">Make</label>
+              <input
+                type="text"
+                value={newMake}
+                onChange={(e) => setNewMake(e.target.value)}
+                className="w-full p-

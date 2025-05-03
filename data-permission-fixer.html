@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase Data Permission Fixer</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        h1, h2, h3 {
+            color: #2c3e50;
+        }
+        .panel {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .code {
+            font-family: monospace;
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        pre {
+            white-space: pre-wrap;
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .error {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .success {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ddd;
+        }
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            margin-right: 5px;
+            background-color: #f1f1f1;
+            border-radius: 4px 4px 0 0;
+        }
+        .tab.active {
+            background-color: #4a89dc;
+            color: white;
+        }
+        .setup-options {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .setup-option {
+            flex: 1;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .setup-option:hover {
+            border-color: #4a89dc;
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .setup-option.selected {
+            border-color: #4a89dc;
+            background-color: #ebf3ff;
+        }
+        button {
+            background-color: #4a89dc;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #3a70c0;
+        }
+        button:disabled {
+            background-color: #95acd2;
+            cursor: not-allowed;
+        }
+        .vehicle-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .vehicle-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            background-color: white;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        .vehicle-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .vehicle-title {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 10px;
+        }
+        .vehicle-info {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .vehicle-info-row {
+            display: flex;
+            justify-content: space-between;
+        }
+        .vehicle-info-label {
+            font-weight: 500;
+            color: #7f8c8d;
+        }
+        .refresh-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .refresh-icon {
+            width: 16px;
+            height: 16px;
+            display: inline-block;
+            border: 2px solid;
+            border-radius: 50%;
+            border-color: #fff #fff transparent transparent;
+            animation: spin 1s linear infinite;
+            opacity: 0;
+        }
+        .refreshing .refresh-icon {
+            opacity: 1;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .status-badge.success {
+            background-color: #e3f9ef;
+            color: #27ae60;
+        }
+        .status-badge.warning {
+            background-color: #fef5e7;
+            color: #f39c12;
+        }
+        .status-badge.error {
+            background-color: #fdedec;
+            color: #e74c3c;
+        }
+        .small-text {
+            font-size: 13px;
+            color: #7f8c8d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Supabase Data Access Diagnostics & Fixer</h1>
+        
+        <div class="tabs">
+            <div class="tab active" data-tab="diagnosis">Diagnosis</div>
+            <div class="tab" data-tab="solution">Solution</div>
+            <div class="tab" data-tab="data-preview">Data Preview</div>
+        </div>
+        
+        <div class="tab-content active" id="diagnosis">
+            <div class="panel">
+                <h2>Database Connection Status</h2>
+                <div id="connection-status">Checking connection...</div>
+                
+                <div id="diagnosis-details" style="margin-top: 20px; display: none;">
+                    <h3>Detailed Diagnosis</h3>
+                    <pre id="diagnosis-output">Running diagnostics...</pre>
+                </div>
+                
+                <button id="run-diagnosis" style="margin-top: 20px;">Run Full Diagnosis</button>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="solution">
+            <div class="panel">
+                <h2>Solution Options</h2>
+                <p>Based on the diagnosis, the following solutions are available:</p>
+                
+                <div class="setup-options">
+                    <div class="setup-option" data-option="localData">
+                        <h3>Use Local Data</h3>
+                        <p>Create a local data store with your sample vehicle data. This bypasses the Supabase permission issues.</p>
+                        <p class="small-text">Best for: Quick viewing of data without modifying database permissions.</p>
+                    </div>
+                    <div class="setup-option" data-option="fixPermissions">
+                        <h3>Fix Supabase Permissions</h3>
+                        <p>Generate SQL statements to modify the RLS policies in your Supabase database.</p>
+                        <p class="small-text">Best for: Permanent solution that maintains your database design.</p>
+                    </div>
+                </div>
+                
+                <div id="solution-details" style="margin-top: 20px; display: none;">
+                    <h3>Solution Details</h3>
+                    <div id="local-data-solution" style="display: none;">
+                        <p>This solution adds your vehicle data to local storage, which will be used by a modified version of your components:</p>
+                        <button id="setup-local-data">Setup Local Data</button>
+                        <div id="local-data-status" style="margin-top: 10px;"></div>
+                    </div>
+                    <div id="fix-permissions-solution" style="display: none;">
+                        <p>Use these SQL statements in the Supabase SQL Editor to fix your RLS policies:</p>
+                        <pre id="sql-statements"></pre>
+                        <button id="copy-sql">Copy SQL</button>
+                        <p>After running these statements, reload your application.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="data-preview">
+            <div class="panel">
+                <h2>Vehicle Data Preview</h2>
+                <p>Preview of the vehicle data that can be viewed in your application:</p>
+                
+                <div style="margin-bottom: 20px;">
+                    <button id="refresh-data" class="refresh-btn">
+                        <span class="refresh-icon"></span> Refresh Data
+                    </button>
+                    <span id="data-count" style="margin-left: 10px;"></span>
+                </div>
+                
+                <div id="vehicle-grid" class="vehicle-grid">
+                    <!-- Vehicle cards will be inserted here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Sample vehicle data
+        const sampleVehicles = [
+            {
+                "id": "b4ef3477-2640-4a83-b9d5-04be8aaa7e54",
+                "vin": "1GKFK13038J127695",
+                "year": 2008,
+                "make": "GMC",
+                "model": "Yukon",
+                "trim": "SLT w/4SB",
+                "drivetrain": "4WD",
+                "body_style": "4D SUV",
+                "engine": "5.3",
+                "fuel_type": "Flex Fuel",
+                "color": "BLUE",
+                "odometer": 231107,
+                "mmr": null,
+                "title_status": "Title Absent",
+                "sold_price": "2600",
+                "charges": "615",
+                "total_cost": "3215",
+                "stock_number": "969092",
+                "sale_date": "2025-03-07",
+                "location": "AAA - Charleston | Moncks Corner, SC",
+                "buyer": "T00486 - TRANSFLEX LLC",
+                "grade": null,
+                "created_at": "2025-03-09 17:27:24.484619+00",
+                "updated_at": "2025-03-09 17:27:24.484619+00",
+                "sales_price": null
+            },
+            {
+                "id": "7ef76bf3-0d7a-4c1c-852f-55147854c207",
+                "vin": "3VWPW31C98M518041",
+                "year": 2008,
+                "make": "Volkswagen",
+                "model": "New Beetle Coupe",
+                "trim": "S",
+                "drivetrain": "FWD",
+                "body_style": "2D Coupe",
+                "engine": "2.5",
+                "fuel_type": "Gasoline",
+                "color": "WHITE",
+                "odometer": 161413,
+                "mmr": null,
+                "title_status": "At Auction",
+                "sold_price": "1000",
+                "charges": "375",
+                "total_cost": "1375",
+                "stock_number": "965799",
+                "sale_date": "2025-01-31",
+                "location": "AAA - Charleston | Moncks Corner, SC",
+                "buyer": "T00486 - TRANSFLEX LLC",
+                "grade": null,
+                "created_at": "2025-03-09 17:27:24.484619+00",
+                "updated_at": "2025-03-09 17:27:24.484619+00",
+                "sales_price": null
+            },
+            {
+                "id": "6de909fe-5e8e-4387-a3f6-fccbbc3b65d8",
+                "vin": "1G1ZS58FX8F101877",
+                "year": 2008,
+                "make": "Chevrolet",
+                "model": "Malibu Classic",
+                "trim": "LS w/1FL",
+                "drivetrain": "FWD",
+                "body_style": "4D Sedan",
+                "engine": "2.2",
+                "fuel_type": "Gasoline",
+                "color": "GRAY",
+                "odometer": 148649,
+                "mmr": null,
+                "title_status": "At Auction",
+                "sold_price": "400",
+                "charges": "440",
+                "total_cost": "840",
+                "stock_number": "965947",
+                "sale_date": "2025-01-17",
+                "location": "AAA - Charleston | Moncks Corner, SC",
+                "buyer": "T00486 - TRANSFLEX LLC",
+                "grade": null,
+                "created_at": "2025-03-09 17:27:24.484619+00",
+                "updated_at": "2025-03-09 17:27:24.484619+00",
+                "sales_price": null
+            },
+            {
+                "id": "fd9b6f15-8899-41ee-b6c8-9ccec120a31f",
+                "vin": "3C4PDCBGXET144082",
+                "year": 2014,
+                "make": "Dodge",
+                "model": "Journey",
+                "trim": "SXT",
+                "drivetrain": "FWD",
+                "body_style": "4D SUV",
+                "engine": "3.6",
+                "fuel_type": "Flex Fuel",
+                "color": "WHITE",
+                "odometer": 184973,
+                "mmr": null,
+                "title_status": "At Auction",
+                "sold_price": "800",
+                "charges": "505",
+                "total_cost": "1305",
+                "stock_number": "959730",
+                "sale_date": "2024-11-15",
+                "location": "AAA - Charleston | Moncks Corner, SC",
+                "buyer": "T00486 - TRANSFLEX LLC",
+                "grade": "2.5",
+                "created_at": "2025-03-09 17:27:24.484619+00",
+                "updated_at": "2025-03-09 17:27:24.484619+00",
+                "sales_price": null
+            }
+        ];
+
+        // Initialize Supabase client
+        const supabaseUrl = 'https://yycoegubidzazcxdfgqt.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl5Y29lZ3ViaWR6YXpjeGRmZ3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE1NDAyMjUsImV4cCI6MjA1NzExNjIyNX0.jkO7P579jPIyjMN9zMiAug5-8vhU3oawhWlp3K9ZV84';
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        // DOM references
+        const connectionStatus = document.getElementById('connection-status');
+        const diagnosisDetails = document.getElementById('diagnosis-details');
+        const diagnosisOutput = document.getElementById('diagnosis-output');
+        const setupOptions = document.querySelectorAll('.setup-option');
+        const solutionDetails = document.getElementById('solution-details');
+        const localDataSolution = document.getElementById('local-data-solution');
+        const fixPermissionsSolution = document.getElementById('fix-permissions-solution');
+        const sqlStatements = document.getElementById('sql-statements');
+        const localDataStatus = document.getElementById('local-data-status');
+        const vehicleGrid = document.getElementById('vehicle-grid');
+        const dataCount = document.getElementById('data-count');
+        const tabs = document.querySelectorAll('.tab');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        // Tab switching
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const tabId = tab.getAttribute('data-tab');
+                
+                // Update active tab
+                tabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                
+                // Show active content
+                tabContents.forEach(content => {
+                    content.classList.remove('active');
+                    if (content.id === tabId) {
+                        content.classList.add('active');
+                    }
+                });
+                
+                // Load data if on data preview tab
+                if (tabId === 'data-preview') {
+                    loadVehicleData();
+                }
+            });
+        });
+    </script>
+        // Setup option selection
+        setupOptions.forEach(option => {
+            option.addEventListener('click', () => {
+                const optionType = option.getAttribute('data-option');
+                
+                // Update selection
+                setupOptions.forEach(o => o.classList.remove('selected'));
+                option.classList.add('selected');
+                
+                // Show appropriate solution details
+                solutionDetails.style.display = 'block';
+                
+                if (optionType === 'localData') {
+                    localDataSolution.style.display = 'block';
+                    fixPermissionsSolution.style.display = 'none';
+                } else {
+                    localDataSolution.style.display = 'none';
+                    fixPermissionsSolution.style.display = 'block';
+                    
+                    // Generate SQL statements
+                    generateSqlStatements();
+                }
+            });
+        });
+
+        // Check connection
+        async function checkConnection() {
+            try {
+                connectionStatus.innerHTML = 'Checking connection...';
+                
+                const { error } = await supabase.from('assets').select('count', { count: 'exact', head: true });
+                
+                if (error) {
+                    connectionStatus.innerHTML = `<div class="error">Connection Error: ${error.message}</div>`;
+                    return false;
+                }
+                
+                // Check if we can write to assets
+                const testVehicle = { ...sampleVehicles[0], id: crypto.randomUUID() };
+                const { error: writeError } = await supabase.from('assets').insert([testVehicle]);
+                
+                if (writeError) {
+                    if (writeError.code === '42501') {
+                        connectionStatus.innerHTML = `
+                            <div class="status-badge warning">Connected with Limited Permissions</div>
+                            <p>Your connection to Supabase is working, but you don't have permission to write data due to Row Level Security (RLS) policies.</p>
+                        `;
+                        return 'limited';
+                    } else {
+                        connectionStatus.innerHTML = `
+                            <div class="status-badge error">Write Error</div>
+                            <p>Connection established, but encountered an error when trying to write data: ${writeError.message}</p>
+                        `;
+                        return 'error';
+                    }
+                }
+                
+                connectionStatus.innerHTML = `
+                    <div class="status-badge success">Connected</div>
+                    <p>Successfully connected to Supabase and verified both read and write permissions.</p>
+                `;
+                return true;
+            } catch (error) {
+                connectionStatus.innerHTML = `<div class="error">Connection Error: ${error.message}</div>`;
+                return false;
+            }
+        }
+
+        // Run diagnosis
+        async function runDiagnosis() {
+            const runDiagnosisBtn = document.getElementById('run-diagnosis');
+            runDiagnosisBtn.disabled = true;
+            runDiagnosisBtn.textContent = 'Running...';
+            
+            try {
+                diagnosisDetails.style.display = 'block';
+                diagnosisOutput.textContent = 'Running diagnostics...\n';
+                
+                // Check tables
+                diagnosisOutput.textContent += '\n--- Checking tables ---\n';
+                
+                // Check assets table
+                const { data: assetsData, error: assetsError } = await supabase
+                    .from('assets')
+                    .select('*')
+                    .limit(1);
+                
+                if (assetsError) {
+                    diagnosisOutput.textContent += `✘ Assets table error: ${assetsError.message}\n`;
+                } else {
+                    diagnosisOutput.textContent += `✓ Assets table exists and is accessible\n`;
+                    diagnosisOutput.textContent += `  Records: ${assetsData?.length || 0}\n`;
+                }
+                
+                // Check fund_assets table
+                const { data: fundAssetsData, error: fundAssetsError } = await supabase
+                    .from('fund_assets')
+                    .select('*')
+                    .limit(1);
+                
+                if (fundAssetsError) {
+                    diagnosisOutput.textContent += `✘ fund_assets table error: ${fundAssetsError.message}\n`;
+                } else {
+                    diagnosisOutput.textContent += `✓ fund_assets table exists and is accessible\n`;
+                    diagnosisOutput.textContent += `  Records: ${fundAssetsData?.length || 0}\n`;
+                }
+                
+                // Check write permissions
+                diagnosisOutput.textContent += '\n--- Checking write permissions ---\n';
+                
+                // Try to insert into assets
+                const testVehicle = { ...sampleVehicles[0], id: crypto.randomUUID() };
+                const { error: insertError } = await supabase.from('assets').insert([testVehicle]);
+                
+                if (insertError) {
+                    diagnosisOutput.textContent += `✘ Cannot insert into assets table: ${insertError.message}\n`;
+                    if (insertError.code === '42501') {
+                        diagnosisOutput.textContent += '  This is a Row Level Security (RLS) policy restriction\n';
+                    }
+                } else {
+                    diagnosisOutput.textContent += `✓ Successfully inserted into assets table\n`;
+                }
+                
+                // Try to insert into fund_assets
+                const testFundAsset = {
+                    asset_id: testVehicle.id,
+                    fund_id: 'cha10',
+                    display_order: 0
+                };
+                
+                const { error: fundInsertError } = await supabase.from('fund_assets').insert([testFundAsset]);
+                
+                if (fundInsertError) {
+                    diagnosisOutput.textContent += `✘ Cannot insert into fund_assets table: ${fundInsertError.message}\n`;
+                    if (fundInsertError.code === '42501') {
+                        diagnosisOutput.textContent += '  This is a Row Level Security (RLS) policy restriction\n';
+                    }
+                } else {
+                    diagnosisOutput.textContent += `✓ Successfully inserted into fund_assets table\n`;
+                }
+                
+                // Diagnosis summary
+                diagnosisOutput.textContent += '\n--- Diagnosis Summary ---\n';
+                
+                if (insertError && insertError.code === '42501') {
+                    diagnosisOutput.textContent += `
+Problem: Your application cannot insert data due to Row Level Security (RLS) policies.
+
+Possible Solutions:
+1. Modify the RLS policies in Supabase to allow the anonymous user to insert data
+2. Use a local data solution that doesn't require database writes
+3. Implement proper authentication if this is meant to be a secured application
+
+Recommendation: Select a solution option in the "Solution" tab.
+`;
+                } else if (insertError) {
+                    diagnosisOutput.textContent += `
+Problem: Your application cannot insert data due to: ${insertError.message}
+
+Recommendation: Check your Supabase project settings, particularly the connection string and permissions.
+`;
+                } else {
+                    diagnosisOutput.textContent += `
+No major issues found with database access. If you're still experiencing problems, check your React components for other potential issues.
+`;
+                }
+                
+            } catch (error) {
+                diagnosisOutput.textContent += `\nError during diagnosis: ${error.message}\n`;
+            } finally {
+                runDiagnosisBtn.disabled = false;
+                runDiagnosisBtn.textContent = 'Run Full Diagnosis';
+            }
+        }
+
+        // Generate SQL statements to fix permissions
+        function generateSqlStatements() {
+            const sql = `-- Enable Row Level Security for assets and fund_assets tables
+ALTER TABLE assets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fund_assets ENABLE ROW LEVEL SECURITY;
+
+-- Drop any existing policies
+DROP POLICY IF EXISTS "Allow anonymous access to assets" ON assets;
+DROP POLICY IF EXISTS "Allow anonymous access to fund_assets" ON fund_assets;
+
+-- Create new policies that allow anonymous read/write access
+CREATE POLICY "Allow anonymous access to assets"
+ON assets
+FOR ALL
+TO anon
+USING (true)
+WITH CHECK (true);
+
+CREATE POLICY "Allow anonymous access to fund_assets"
+ON fund_assets
+FOR ALL
+TO anon
+USING (true)
+WITH CHECK (true);
+
+-- If you want to restrict access for production use, you would create more specific policies
+-- For example, to only allow read access:
+-- CREATE POLICY "Allow anonymous read access to assets" ON assets FOR SELECT TO anon USING (true);
+`;
+
+            sqlStatements.textContent = sql;
+        }
+
+        // Copy SQL to clipboard
+        document.getElementById('copy-sql').addEventListener('click', () => {
+            navigator.clipboard.writeText(sqlStatements.textContent);
+            alert('SQL copied to clipboard!');
+        });
+
+        // Setup local data
+        document.getElementById('setup-local-data').addEventListener('click', async () => {
+            try {
+                localDataStatus.innerHTML = '<span class="status-badge warning">Setting up...</span>';
+                
+                // Store vehicles in localStorage
+                localStorage.setItem('sampleVehicles', JSON.stringify(sampleVehicles));
+                
+                // Create fund associations
+                const fundAssociations = sampleVehicles.map((vehicle, index) => ({
+                    id: crypto.randomUUID(),
+                    asset_id: vehicle.id,
+                    fund_id: index % 4 === 0 ? 'cha10' : 
+                             index % 4 === 1 ? 'tra10' : 
+                             index % 4 === 2 ? 'bhph' : 'caps',
+                    display_order: 0,
+                    disposition_price: vehicle.sold_price || null
+                }));
+                
+                localStorage.setItem('fundAssociations', JSON.stringify(fundAssociations));
+                
+                setTimeout(() => {
+                    localDataStatus.innerHTML = `<span class="status-badge success">Local data setup complete!</span>
+                        <p>Stored ${sampleVehicles.length} vehicles and ${fundAssociations.length} fund associations in localStorage.</p>
+                        <p>You can now view the data in the "Data Preview" tab, or paste the following code into your browser console when viewing your React app:</p>
+                        <pre class="code">
+// Add this to your browser console to override Supabase data with local storage
+(function() {
+  const vehicles = ${JSON.stringify(sampleVehicles)};
+  const fundAssocs = ${JSON.stringify(fundAssociations)};
+  localStorage.setItem('sampleVehicles', JSON.stringify(vehicles));
+  localStorage.setItem('fundAssociations', JSON.stringify(fundAssocs));
+  console.log('Sample data loaded into localStorage!');
+})();
+                        </pre>
+                        <p>Then add this code to the top of your AssetManager.jsx component's fetchAssets function:</p>
+                        <pre class="code">
+const fetchAssets = async () => {
+  try {
+    setLoading(true);
+    
+    // LOCAL DATA OVERRIDE - START
+    const localVehicles = localStorage.getItem('sampleVehicles');
+    const localFundAssocs = localStorage.getItem('fundAssociations');
+    
+    if (localVehicles && localFundAssocs) {
+      const vehicles = JSON.parse(localVehicles);
+      const fundAssocs = JSON.parse(localFundAssocs);
+      
+      // Merge fund associations with vehicles
+      const processedAssets = vehicles.map(vehicle => {
+        const vehicleAssocs = fundAssocs.filter(fa => fa.asset_id === vehicle.id);
+        return {
+          ...vehicle,
+          fundId: vehicleAssocs.length > 0 ? vehicleAssocs[0].fund_id : null,
+          mileage: Math.floor(Math.random() * 250000),
+          dealerCode: Math.floor(Math.random() * 1000000).toString(),
+          location: 'AAA - Charleston | SC',
+          disposition_price: vehicleAssocs.length > 0 ? vehicleAssocs[0].disposition_price : null,
+          fund_assets: vehicleAssocs.map(fa => ({
+            fund_id: fa.fund_id,
+            disposition_price: fa.disposition_price
+          }))
+        };
+      });
+      
+      setAssets(processedAssets);
+      setLoading(false);
+      return; // Skip the Supabase query
+    }
+    // LOCAL DATA OVERRIDE - END
+                        </pre>`;
+                }, 1000);
+                
+                // Load vehicles in the data preview tab
+                loadVehicleData();
+                
+            } catch (error) {
+                localDataStatus.innerHTML = `<span class="status-badge error">Error: ${error.message}</span>`;
+            }
+        });
+
+        // Load vehicle data for preview
+        function loadVehicleData() {
+            const refreshBtn = document.getElementById('refresh-data');
+            refreshBtn.classList.add('refreshing');
+            
+            // Get vehicles from storage or use sample
+            const vehiclesJson = localStorage.getItem('sampleVehicles');
+            const vehicles = vehiclesJson ? JSON.parse(vehiclesJson) : sampleVehicles;
+            
+            // Clear previous cards
+            vehicleGrid.innerHTML = '';
+            
+            // Update data count
+            dataCount.textContent = `${vehicles.length} vehicles found`;
+            
+            // Create vehicle cards
+            vehicles.forEach(vehicle => {
+                const card = document.createElement('div');
+                card.className = 'vehicle-card';
+                
+                const title = document.createElement('div');
+                title.className = 'vehicle-title';
+                title.textContent = `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
+                
+                const info = document.createElement('div');
+                info.className = 'vehicle-info';
+                
+                // VIN
+                const vinRow = document.createElement('div');
+                vinRow.className = 'vehicle-info-row';
+                vinRow.innerHTML = `<span class="vehicle-info-label">VIN:</span><span>${vehicle.vin}</span>`;
+                
+                // Odometer
+                const odometerRow = document.createElement('div');
+                odometerRow.className = 'vehicle-info-row';
+                odometerRow.innerHTML = `<span class="vehicle-info-label">Odometer:</span><span>${vehicle.odometer.toLocaleString()} mi</span>`;
+                
+                // Price
+                const priceRow = document.createElement('div');
+                priceRow.className = 'vehicle-info-row';
+                const price = vehicle.sold_price ? `$${parseInt(vehicle.sold_price).toLocaleString()}` : 'N/A';
+                priceRow.innerHTML = `<span class="vehicle-info-label">Sold Price:</span><span>${price}</span>`;
+                
+                // Status
+                const statusRow = document.createElement('div');
+                statusRow.className = 'vehicle-info-row';
+                const statusBadge = document.createElement('span');
+                statusBadge.className = `status-badge ${vehicle.title_status === 'At Auction' ? 'warning' : 'success'}`;
+                statusBadge.textContent = vehicle.title_status || 'Unknown';
+                statusRow.innerHTML = `<span class="vehicle-info-label">Status:</span>`;
+                statusRow.appendChild(statusBadge);
+                
+                // Append rows to info
+                info.appendChild(vinRow);
+                info.appendChild(odometerRow);
+                info.appendChild(priceRow);
+                info.appendChild(statusRow);
+                
+                // Append all to card
+                card.appendChild(title);
+                card.appendChild(info);
+                
+                // Add card to grid
+                vehicleGrid.appendChild(card);
+            });
+            
+            refreshBtn.classList.remove('refreshing');
+        }
+        
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check connection
+            checkConnection();
+            
+            // Set up event listeners
+            document.getElementById('run-diagnosis').addEventListener('click', runDiagnosis);
+            document.getElementById('refresh-data').addEventListener('click', loadVehicleData);
+            
+            // Generate SQL statements
+            generateSqlStatements();
+        });
