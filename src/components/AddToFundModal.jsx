@@ -4,7 +4,7 @@ const AddToFundModal = ({ selectedAsset, selectedFund, setSelectedFund, setShowA
   const [existingFundInfo, setExistingFundInfo] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Check if asset is already in a fund when component mounts
+  // Check if asset is already in a fund whenever the selected asset changes
   useEffect(() => {
     const checkExistingFund = async () => {
       if (!selectedAsset) return;
