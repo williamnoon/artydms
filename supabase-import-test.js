@@ -4,8 +4,15 @@
 const { createClient } = require('@supabase/supabase-js');
 
 // Supabase credentials
-const supabaseUrl = 'https://yycoegubidzazcxdfgqt.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl5Y29lZ3ViaWR6YXpjeGRmZ3F0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE1NDAyMjUsImV4cCI6MjA1NzExNjIyNX0.jkO7P579jPIyjMN9zMiAug5-8vhU3oawhWlp3K9ZV84';
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.warn(
+    'Supabase URL or Key missing. Please set SUPABASE_URL and SUPABASE_KEY environment variables.'
+  );
+}
+
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Sample vehicle data
