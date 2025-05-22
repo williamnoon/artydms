@@ -10,7 +10,7 @@ A comprehensive financial management system for automotive sales, featuring role
 - **Role-Based Access**: Different views for administrators and partners
 - **Financial Calculator**: Calculate payments, fees, and taxes
 - **Admin Dashboard**: View metrics and financial performance
-- **Document Generation**: Create buyer's orders, bills of sale, and receipts
+- **Document Generation**: Create buyers' orders, bills of sale, and receipts
 
 ## Tech Stack
 
